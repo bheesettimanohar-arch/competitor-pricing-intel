@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import re
 import json
 from typing import Any, AsyncGenerator
@@ -38,28 +39,44 @@ model = Gemini(
 )
 
 # -----------------------------------------------------------------------------
-# MCP TOOLSETS (Launch the local MCP server)
+# MCP TOOLSETS / DIRECT TOOLS (Conditional for Vercel Serverless environment)
 # -----------------------------------------------------------------------------
 
-scraper_toolset = McpToolset(
-    connection_params=StdioConnectionParams(
-        server_params=StdioServerParameters(
-            command="uv",
-            args=["run", "--link-mode=copy", "python", "app/mcp_server.py"],
-        )
-    ),
-    tool_filter=["get_competitor_price", "get_shipping_cost"]
-)
+IS_VERCEL = os.getenv("VERCEL") == "1"
 
-analyst_toolset = McpToolset(
-    connection_params=StdioConnectionParams(
-        server_params=StdioServerParameters(
-            command="uv",
-            args=["run", "--link-mode=copy", "python", "app/mcp_server.py"],
-        )
-    ),
-    tool_filter=["get_internal_cost", "get_stock_level"]
-)
+if IS_VERCEL:
+    # Direct imports of the functions from our mcp_server module for Vercel serverless mode
+    from app.mcp_server import (
+        get_competitor_price,
+        get_shipping_cost,
+        get_internal_cost,
+        get_stock_level,
+    )
+    scraper_tools = [get_competitor_price, get_shipping_cost]
+    analyst_tools = [get_internal_cost, get_stock_level]
+else:
+    # Local stdio MCP toolsets for development environment
+    scraper_toolset = McpToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command="uv",
+                args=["run", "--link-mode=copy", "python", "app/mcp_server.py"],
+            )
+        ),
+        tool_filter=["get_competitor_price", "get_shipping_cost"]
+    )
+
+    analyst_toolset = McpToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command="uv",
+                args=["run", "--link-mode=copy", "python", "app/mcp_server.py"],
+            )
+        ),
+        tool_filter=["get_internal_cost", "get_stock_level"]
+    )
+    scraper_tools = [scraper_toolset]
+    analyst_tools = [analyst_toolset]
 
 # -----------------------------------------------------------------------------
 # SUB-AGENTS & AGENT TOOLS
@@ -73,7 +90,7 @@ competitor_scraper_agent = LlmAgent(
 Your job is to look up competitor pricing for the requested product.
 Use the competitor pricing tools from the MCP server to find competitor price and shipping details.
 Return only the competitor price and shipping information found, for example: 'Competitor price for [Product]: $X.XX, shipping: $Y.YY'""",
-    tools=[scraper_toolset]
+    tools=scraper_tools
 )
 
 pricing_analyst_agent = LlmAgent(
@@ -86,7 +103,7 @@ Ensure our profit margin remains above 15% after shipping.
 Determine if we should lower our price to match or raise it to gain margin.
 Use the MCP tools to check internal cost and stock level details.
 Recommend the final adjusted price and state the reason.""",
-    tools=[analyst_toolset]
+    tools=analyst_tools
 )
 
 scrape_tool = AgentTool(agent=competitor_scraper_agent, skip_summarization=True)
