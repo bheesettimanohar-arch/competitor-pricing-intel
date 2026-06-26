@@ -35,7 +35,13 @@ from mcp import StdioServerParameters
 # Initialize base model
 model = Gemini(
     model=config.model,
-    retry_options=types.HttpRetryOptions(attempts=3)
+    retry_options=types.HttpRetryOptions(
+        attempts=6,
+        initial_delay=2.0,
+        max_delay=30.0,
+        exp_base=2.0,
+        jitter=1.0,
+    )
 )
 
 # -----------------------------------------------------------------------------
